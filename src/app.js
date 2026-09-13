@@ -14,7 +14,7 @@ const accountRouter = require("./routes/account.routes");
 const transactionRouter = require("./routes/transition.route");
 
 app.get('/', (req, res) => {
-    res.send('Welcome to the Hitesh SAINI Backend Banking App API!');
+    res.send('Welcome to the ASHA SAINI Backend Banking App API!');
 });
 
 app.use(cookieParser());
