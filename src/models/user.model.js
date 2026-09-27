@@ -1,58 +1,32 @@
-const mongoose = require("mongoose");
-const validator = require("validator");
 const bcrypt = require("bcryptjs");
-const userSchema = new mongoose.Schema({
+const { pool } = require("../config/db");
 
-    email:{
-        type :String,
-        required :[true , "Email is required for Creating User.."],
-        trim :true ,
-        lowercase :true,
-        validate :{
-            validator : validator.isEmail ,
-            message : "Please Enter A Valid Email."
-        },
-        unique : [true , "Email Already Exists."]
-    },
-    name : {
-        type : String , 
-        required : [true , "Name is required to creating a account."]
-    },
-    password :{
-        type:String ,
-        required : [true , "Password required to creating an user."],
-        minlength : [6 ,"Password should be at least 6 char" ],
-        select : false
-    },
-    systemUser:{
-        type: Boolean,
-        default:false,
-        immutable:true,
-        select:false
-    }
+const mapUser = (r, password = false, system = false) => {
+  if (!r) return null;
+  const u = { _id:r.id, email:r.email, name:r.name, createdAt:r.created_at, updatedAt:r.updated_at };
+  if (password) u.password = r.password;
+  if (system) u.systemUser = r.system_user;
+  u.comparePassword = (p) => bcrypt.compare(p, r.password);
+  return u;
+};
 
-},
-{
-timestamps: true }
-
-
-);
-
-userSchema.pre("save", async function () {
-
-    if (!this.isModified("password")) {
-        return;
-    }
-
-    const hash = await bcrypt.hash(this.password, 10); 
-    this.password = hash;
-});
-
-userSchema.methods.comparePassword = async function(password){
-
-    return await bcrypt.compare(password , this.password);
+async function create({email,password,name,systemUser=false}, client=pool) {
+  const hash = await bcrypt.hash(password, 10);
+  const {rows} = await client.query(
+    "INSERT INTO users(email,password,name,system_user) VALUES($1,$2,$3,$4) RETURNING *",
+    [email.trim().toLowerCase(),hash,name,systemUser]
+  );
+  return mapUser(rows[0]);
 }
 
-const userModel = mongoose.model("user" , userSchema);
+async function findOne({email,selectPassword=false}, client=pool) {
+  const {rows} = await client.query("SELECT * FROM users WHERE email=$1 LIMIT 1",[email.trim().toLowerCase()]);
+  return mapUser(rows[0],selectPassword);
+}
 
-module.exports = userModel;
+async function findById(id,{selectSystemUser=false}={},client=pool) {
+  const {rows} = await client.query("SELECT * FROM users WHERE id=$1 LIMIT 1",[id]);
+  return mapUser(rows[0],false,selectSystemUser);
+}
+
+module.exports = {create,findOne,findById};
