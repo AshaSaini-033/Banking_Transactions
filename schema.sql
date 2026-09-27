@@ -1,89 +1,135 @@
--- BANKING TRANSACTIONS - POSTGRESQL SCHEMA
--- Run once: psql -U postgres -d banking -f schema.sql
+-- ============================================================
+-- BANKING TRANSACTIONS - MYSQL SCHEMA
+-- ============================================================
+-- Create database first:
+-- CREATE DATABASE banking;
+-- USE banking;
+--
+-- Then run this file.
+-- MySQL UUIDs application side par crypto.randomUUID() se generate
+-- hote hain aur CHAR(36) mein store hote hain.
 
--- UUID generate karne ke liye PostgreSQL extension.
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE DATABASE IF NOT EXISTS banking;
+USE banking;
 
--- USERS: application users.
--- Password yahan plaintext nahi, bcrypt hash ke form mein store hota hai.
+-- USERS
+-- Password plaintext mein nahi, bcrypt hash ke form mein store hota hai.
 CREATE TABLE IF NOT EXISTS users(
- id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+ id CHAR(36) PRIMARY KEY,
  email VARCHAR(255) NOT NULL UNIQUE,
  name VARCHAR(120) NOT NULL,
  password TEXT NOT NULL,
  system_user BOOLEAN NOT NULL DEFAULT FALSE,
- created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
- updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+ created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
 
--- ACCOUNTS: ek user ke multiple accounts ho sakte hain.
+-- ACCOUNTS
+-- Ek user ke multiple accounts ho sakte hain.
 CREATE TABLE IF NOT EXISTS accounts(
- id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
- user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
- status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE'
-   CHECK(status IN('ACTIVE','FROZEN','CLOSED')),
+ id CHAR(36) PRIMARY KEY,
+ user_id CHAR(36) NOT NULL,
+ status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
  currency VARCHAR(10) NOT NULL DEFAULT 'INR',
- created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
- updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+ created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ CONSTRAINT fk_accounts_user
+   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE RESTRICT,
+ CONSTRAINT chk_account_status
+   CHECK (status IN ('ACTIVE','FROZEN','CLOSED')
+ )
+) ENGINE=InnoDB;
 
-CREATE INDEX IF NOT EXISTS idx_accounts_user_status
+CREATE INDEX idx_accounts_user_status
 ON accounts(user_id,status);
 
--- TRANSACTIONS: logical money transfer.
--- from_account = sender, to_account = receiver.
--- idempotency_key UNIQUE duplicate payment ko prevent karta hai.
+-- TRANSACTIONS
+-- from_account = sender
+-- to_account   = receiver
+-- idempotency_key duplicate payment ko prevent karta hai.
 CREATE TABLE IF NOT EXISTS transactions(
- id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
- from_account UUID NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
- to_account UUID NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
- status VARCHAR(20) NOT NULL DEFAULT 'PENDING'
-   CHECK(status IN('PENDING','COMPLETED','FAILED','REVERSED')),
- amount NUMERIC(18,2) NOT NULL CHECK(amount>0),
+ id CHAR(36) PRIMARY KEY,
+ from_account CHAR(36) NOT NULL,
+ to_account CHAR(36) NOT NULL,
+ status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+ amount DECIMAL(18,2) NOT NULL,
  idempotency_key VARCHAR(255) NOT NULL UNIQUE,
- created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
- updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
- CONSTRAINT different_accounts CHECK(from_account<>to_account)
-);
+ created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
-CREATE INDEX IF NOT EXISTS idx_transactions_from ON transactions(from_account);
-CREATE INDEX IF NOT EXISTS idx_transactions_to ON transactions(to_account);
+ CONSTRAINT fk_tx_sender
+   FOREIGN KEY (from_account) REFERENCES accounts(id) ON DELETE RESTRICT,
+ CONSTRAINT fk_tx_receiver
+   FOREIGN KEY (to_account) REFERENCES accounts(id) ON DELETE RESTRICT,
+ CONSTRAINT chk_tx_status
+   CHECK (status IN ('PENDING','COMPLETED','FAILED','REVERSED')),
+ CONSTRAINT chk_tx_amount
+   CHECK (amount > 0),
+ CONSTRAINT chk_different_accounts
+   CHECK (from_account <> to_account)
+) ENGINE=InnoDB;
 
--- LEDGER: actual financial audit trail.
--- A -> B ₹500:
--- A = DEBIT ₹500
--- B = CREDIT ₹500
--- Balance = total CREDIT - total DEBIT
+CREATE INDEX idx_transactions_from ON transactions(from_account);
+CREATE INDEX idx_transactions_to ON transactions(to_account);
+
+-- LEDGER
+-- Har transfer ke liye:
+-- Sender   -> DEBIT
+-- Receiver -> CREDIT
+--
+-- Balance = Total CREDIT - Total DEBIT
 CREATE TABLE IF NOT EXISTS ledger(
- id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
- account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
- amount NUMERIC(18,2) NOT NULL CHECK(amount>0),
- transaction_id UUID NOT NULL REFERENCES transactions(id) ON DELETE RESTRICT,
- type VARCHAR(10) NOT NULL CHECK(type IN('CREDIT','DEBIT')),
- created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+ id CHAR(36) PRIMARY KEY,
+ account_id CHAR(36) NOT NULL,
+ amount DECIMAL(18,2) NOT NULL,
+ transaction_id CHAR(36) NOT NULL,
+ type VARCHAR(10) NOT NULL,
+ created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-CREATE INDEX IF NOT EXISTS idx_ledger_account ON ledger(account_id);
-CREATE INDEX IF NOT EXISTS idx_ledger_transaction ON ledger(transaction_id);
+ CONSTRAINT fk_ledger_account
+   FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE RESTRICT,
+ CONSTRAINT fk_ledger_transaction
+   FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE RESTRICT,
+ CONSTRAINT chk_ledger_type
+   CHECK (type IN ('CREDIT','DEBIT')),
+ CONSTRAINT chk_ledger_amount
+   CHECK (amount > 0)
+) ENGINE=InnoDB;
 
--- TOKEN BLACKLIST: logout ke baad JWT yahan store hota hai.
+CREATE INDEX idx_ledger_account ON ledger(account_id);
+CREATE INDEX idx_ledger_transaction ON ledger(transaction_id);
+
+-- TOKEN BLACKLIST
+-- Logout ke baad JWT yahan store hota hai.
 CREATE TABLE IF NOT EXISTS token_blacklist(
- id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
- token TEXT NOT NULL UNIQUE,
- blacklisted_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+ id CHAR(36) PRIMARY KEY,
+ token TEXT NOT NULL,
+ blacklisted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ UNIQUE KEY uq_blacklist_token (token(255))
+) ENGINE=InnoDB;
 
--- Ledger financial history hai, isliye UPDATE/DELETE allowed nahi.
--- Correction ke liye future mein reversal transaction create karna better hai.
-CREATE OR REPLACE FUNCTION prevent_ledger_modification()
-RETURNS TRIGGER AS $$
-BEGIN
-  RAISE EXCEPTION 'ledger entries are immutable and cannot be modified or deleted';
-END;
-$$ LANGUAGE plpgsql;
+-- LEDGER IMMUTABILITY
+-- Financial history ko UPDATE/DELETE nahi karna chahiye.
+-- Correction ke liye reversal transaction create karna better hai.
 
-DROP TRIGGER IF EXISTS ledger_no_update ON ledger;
+DELIMITER $$
 
+DROP TRIGGER IF EXISTS ledger_no_update$$
 CREATE TRIGGER ledger_no_update
-BEFORE UPDATE OR DELETE ON ledger
-FOR EACH ROW EXECUTE FUNCTION prevent_ledger_modification();
+BEFORE UPDATE ON ledger
+FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000'
+    SET MESSAGE_TEXT = 'Ledger entries are immutable and cannot be updated';
+END$$
+
+DROP TRIGGER IF EXISTS ledger_no_delete$$
+CREATE TRIGGER ledger_no_delete
+BEFORE DELETE ON ledger
+FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000'
+    SET MESSAGE_TEXT = 'Ledger entries are immutable and cannot be deleted';
+END$$
+
+DELIMITER ;
