@@ -5,7 +5,7 @@ const accountModel = require("../models/account.model");
 const { pool } = require("../config/db");
 const redLock = require("../config/redlock");
 
-// PostgreSQL mein account IDs UUID hain.
+// MySQL mein account IDs UUID hain.
 // Isliye MongoDB ObjectId validation ki jagah UUID validation kar rahe hain.
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -65,7 +65,7 @@ async function createTransaction(req, res) {
     });
   }
 
-  // MongoDB ObjectId ki jagah PostgreSQL UUID use ho raha hai.
+  // MongoDB ObjectId ki jagah MySQL UUID use ho raha hai.
   if (!validId(fromAccount) || !validId(toAccount)) {
     return res.status(400).json({
       message: "Invalid account ID"
@@ -150,14 +150,14 @@ async function createTransaction(req, res) {
     // Important: Redis money store nahi karta.
     lock = await redLock.acquire(keys, 10000);
 
-    // PostgreSQL pool se dedicated connection le rahe hain.
+    // MySQL pool se dedicated connection le rahe hain.
     // Transaction ke saare SQL queries isi client par chalni chahiye.
-    client = await pool.connect();
+    client = await pool.getConnection();
 
     // ========================================================
-    // STEP 5: POSTGRESQL ACID TRANSACTION START
+    // STEP 5: mysql ACID TRANSACTION START
     // ========================================================
-    await client.query("BEGIN");
+    await client.beginTransaction();
 
     // ========================================================
     // STEP 6: DATABASE ROW LOCK
@@ -167,7 +167,7 @@ async function createTransaction(req, res) {
     // "In account rows ko current SQL transaction ke complete hone tak lock rakho."
     //
     // Agar doosri request same account ko lock karne ki koshish karegi,
-    // PostgreSQL usse wait karayega.
+    // MySQL usse wait karayega.
     const s = await accountModel.findByIdForUpdate(
       fromAccount,
       client
@@ -270,7 +270,7 @@ async function createTransaction(req, res) {
     // ========================================================
 
     // Ab tak ke saare SQL changes permanently save ho jayenge.
-    await client.query("COMMIT");
+    await client.commit();
 
     // Email database commit ke BAAD bhej rahe hain.
     // External email service ko financial DB transaction ke andar nahi rakhna.
@@ -295,13 +295,13 @@ async function createTransaction(req, res) {
     // to DEBIT/CREDIT/PENDING sab uncommitted changes rollback ho jayenge.
     if (client) {
       try {
-        await client.query("ROLLBACK");
+        await client.rollback();
       } catch (_) {}
     }
 
-    // PostgreSQL unique constraint violation.
+    // MySQL unique constraint violation.
     // Usually same idempotency key concurrent request se aa sakti hai.
-    if (e.code === "23505") {
+    if (e.code === "ER_DUP_ENTRY") {
       const t = await transactionModel.findOne({
         idempotencyKey
       });
@@ -349,7 +349,7 @@ async function createTransaction(req, res) {
     });
 
   } finally {
-    // PostgreSQL connection ko pool mein wapas return karna.
+    // MySQL connection ko pool mein wapas return karna.
     if (client) {
       client.release();
     }
@@ -444,10 +444,10 @@ async function createInitialFuncdstransaction(req, res) {
   try {
     lock = await redLock.acquire(keys, 10000);
 
-    client = await pool.connect();
+    client = await pool.getConnection();
 
     // Initial funds bhi atomic operation hona chahiye.
-    await client.query("BEGIN");
+    await client.beginTransaction();
 
     const t = await transactionModel.create(
       {
@@ -488,7 +488,7 @@ async function createInitialFuncdstransaction(req, res) {
       client
     );
 
-    await client.query("COMMIT");
+    await client.commit();
 
     return res.status(201).json({
       message: "Initial Funds Transaction completed successfully",
@@ -498,11 +498,11 @@ async function createInitialFuncdstransaction(req, res) {
   } catch (e) {
     if (client) {
       try {
-        await client.query("ROLLBACK");
+        await client.rollback();
       } catch (_) {}
     }
 
-    if (e.code === "23505") {
+    if (e.code === "ER_DUP_ENTRY") {
       const t = await transactionModel.findOne({
         idempotencyKey
       });
