@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const { pool } = require("../config/db");
 
 async function create({ account, amount, transaction, type }, client = pool) {
