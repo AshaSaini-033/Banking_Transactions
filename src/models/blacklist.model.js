@@ -1,24 +1,13 @@
-const mongoose = require("mongoose");
+const { pool } = require("../config/db");
 
-const tokenBlackListSchema = new mongoose.Schema({
-
-    token:{
-        type:String ,
-        Required:[true , "Token is required to Blacklist."],
-        unique :[true , "Token is already Blacklist"]
-    },
-    blackListedAt :{
-        type:Date,
-        default :Date.now,
-        immutable:true
-    }
-
-},{
-    timestamps : true
-});
-
-tokenBlackListSchema.index({createdAt : 1} , { expireAfterSeconds : 60*60*24*3});
-
-const tokenBlackListModel = mongoose.model("tokenBlackList" , tokenBlackListSchema);
-
-module.exports = {tokenBlackListModel};
+async function findOne({token},client=pool) {
+  const {rows}=await client.query("SELECT * FROM token_blacklist WHERE token=$1 LIMIT 1",[token]);
+  return rows[0] || null;
+}
+async function create({token},client=pool) {
+  const {rows}=await client.query(
+    "INSERT INTO token_blacklist(token) VALUES($1) ON CONFLICT(token) DO NOTHING RETURNING *",[token]);
+  return rows[0] || findOne({token},client);
+}
+const tokenBlackListModel={findOne,create};
+module.exports={tokenBlackListModel};
