@@ -1,9 +1,6 @@
-const app = require("./src/app");
 require("dotenv").config();
+const app=require("./src/app");
 require("./src/config/redis");
-const connectToDb = require("./src/config/db");
-app.listen(3000, () => {
-    console.log("Hii Asha Server is running on port 3000");
-})
-
-connectToDb();
+const {connectDB}=require("./src/config/db");
+const PORT=process.env.PORT||3000;
+connectDB().then(()=>app.listen(PORT,()=>console.log(`Asha Banking Server is running on port ${PORT}`)));
