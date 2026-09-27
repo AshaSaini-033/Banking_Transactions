@@ -1,95 +1,40 @@
-const mongoose = require("mongoose");
-const ledgerModel = require("../models/ledger.model");
+const { pool } = require("../config/db");
 
+const map = r => r ? {
+  _id:r.id,user:r.user_id,status:r.status,currency:r.currency,
+  createdAt:r.created_at,updatedAt:r.updated_at
+} : null;
 
+async function create({user},client=pool) {
+  const {rows}=await client.query(
+    "INSERT INTO accounts(user_id) VALUES($1) RETURNING *",[user]);
+  return map(rows[0]);
+}
 
+async function find({user},client=pool) {
+  const {rows}=await client.query(
+    "SELECT * FROM accounts WHERE user_id=$1 ORDER BY created_at DESC",[user]);
+  return rows.map(map);
+}
 
-const accountSchema = new mongoose.Schema({
+async function findOne({_id,user},client=pool) {
+  const c=[],v=[];
+  if(_id){v.push(_id);c.push(`id=$${v.length}`);}
+  if(user){v.push(user);c.push(`user_id=$${v.length}`);}
+  if(!c.length)return null;
+  const {rows}=await client.query(`SELECT * FROM accounts WHERE ${c.join(" AND ")} LIMIT 1`,v);
+  return map(rows[0]);
+}
 
-user:{
-    type : mongoose.Schema.Types.ObjectId,
-    ref:"user",
-    required:[true , "Account must be associated with a user"],
-    index :true
-},
-status: {
-    type: String,
-    enum: {
-        values: ["ACTIVE", "FROZEN", "CLOSED"],
-        message: "Status can be either ACTIVE, FROZEN or CLOSED."
-    },
-    default: "ACTIVE"
-},
-    currency:{
-        type :String,
-        required :[true , "currency is required for creating an account"],
-        default : "INR"
-    }
-    
+async function findByIdForUpdate(id,client) {
+  const {rows}=await client.query("SELECT * FROM accounts WHERE id=$1 FOR UPDATE",[id]);
+  return map(rows[0]);
+}
 
-}, {
-    timestamps : true 
-});
+async function getBalance(id,client=pool) {
+  const {rows}=await client.query(
+    "SELECT COALESCE(SUM(CASE WHEN type='CREDIT' THEN amount ELSE -amount END),0) AS balance FROM ledger WHERE account_id=$1",[id]);
+  return Number(rows[0].balance);
+}
 
-accountSchema.index({user:1 , status : 1});
-
-
-accountSchema.methods.getBalance = async function(session) {
-
-    const aggregation = ledgerModel.aggregate([
-        {
-            $match: {
-                account: this._id
-            }
-        },
-        {
-            $group: {
-                _id: null,
-
-                totalDebit: {
-                    $sum: {
-                        $cond: [
-                            { $eq: ["$type", "DEBIT"] },
-                            "$amount",
-                            0
-                        ]
-                    }
-                },
-
-                totalCredit: {
-                    $sum: {
-                        $cond: [
-                            { $eq: ["$type", "CREDIT"] },
-                            "$amount",
-                            0
-                        ]
-                    }
-                }
-            }
-        },
-        {
-            $project: {
-                _id: 0,
-                balance: {
-                    $subtract: ["$totalCredit", "$totalDebit"]
-                }
-            }
-        }
-    ]);
-
-    if (session) {
-        aggregation.session(session);
-    }
-
-    const balanceData = await aggregation;
-
-    if (balanceData.length === 0) {
-        return 0;
-    }
-
-    return balanceData[0].balance;
-};
-const accountModel = mongoose.model("account" , accountSchema);
-
-
-module.exports = accountModel
+module.exports={create,find,findOne,findByIdForUpdate,getBalance};
