@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const { pool } = require("../config/db");
 
 const map = r => r ? {
