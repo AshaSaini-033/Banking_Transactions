@@ -1,14 +1,18 @@
-const mongoose = require("mongoose")
-// require("dotenv")
-function connectDB() {
+const { Pool } = require("pg");
 
-
-mongoose.connect(process.env.MONGO_URI).then(()=>{
-    console.log("connected to DB");
-}).catch(err => {
-    console.log("error connecting to DB");
-    process.exit(1);
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false
 });
+
+async function connectDB() {
+  try {
+    await pool.query("SELECT 1");
+    console.log("Connected to PostgreSQL");
+  } catch (error) {
+    console.error("Error connecting to PostgreSQL:", error.message);
+    process.exit(1);
+  }
 }
 
-module.exports = connectDB
+module.exports = { pool, connectDB };
