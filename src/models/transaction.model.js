@@ -1,6 +1,5 @@
 const { pool } = require("../config/db");
 
-// DB transaction row ko JavaScript object mein map karte hain.
 const map = r => r ? {
   _id: r.id,
   fromAccount: r.from_account,
@@ -12,37 +11,45 @@ const map = r => r ? {
   updatedAt: r.updated_at
 } : null;
 
-// Same idempotency key ka payment pehle process hua hai ya nahi check.
 async function findOne({ idempotencyKey }, client = pool) {
-  const { rows } = await client.query(
-    "SELECT * FROM transactions WHERE idempotency_key=$1 LIMIT 1",
+  const [rows] = await client.execute(
+    "SELECT * FROM transactions WHERE idempotency_key=? LIMIT 1",
     [idempotencyKey]
   );
 
   return map(rows[0]);
 }
 
-// New transaction initially PENDING state mein create hoti hai.
 async function create(
   { fromAccount, toAccount, amount, idempotencyKey, status = "PENDING" },
   client = pool
 ) {
-  const { rows } = await client.query(
+  const id = crypto.randomUUID();
+
+  await client.execute(
     `INSERT INTO transactions
-      (from_account, to_account, amount, idempotency_key, status)
-     VALUES($1,$2,$3,$4,$5)
-     RETURNING *`,
-    [fromAccount, toAccount, amount, idempotencyKey, status]
+      (id,from_account,to_account,amount,idempotency_key,status)
+     VALUES(?,?,?,?,?,?)`,
+    [id, fromAccount, toAccount, amount, idempotencyKey, status]
+  );
+
+  const [rows] = await client.execute(
+    "SELECT * FROM transactions WHERE id=?",
+    [id]
   );
 
   return map(rows[0]);
 }
 
-// Ledger successfully create hone ke baad transaction ko COMPLETED karte hain.
 async function updateStatus(id, status, client = pool) {
-  const { rows } = await client.query(
-    "UPDATE transactions SET status=$1,updated_at=CURRENT_TIMESTAMP WHERE id=$2 RETURNING *",
+  await client.execute(
+    "UPDATE transactions SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
     [status, id]
+  );
+
+  const [rows] = await client.execute(
+    "SELECT * FROM transactions WHERE id=?",
+    [id]
   );
 
   return map(rows[0]);
