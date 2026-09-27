@@ -1,47 +1,30 @@
-const mongoose = require("mongoose");
+const { pool } = require("../config/db");
 
+const map = r => r ? {
+  _id:r.id,fromAccount:r.from_account,toAccount:r.to_account,status:r.status,
+  amount:Number(r.amount),idempotencyKey:r.idempotency_key,
+  createdAt:r.created_at,updatedAt:r.updated_at
+} : null;
 
-const transactionSchema = new mongoose.Schema({
-
-
-    fromAccount :{
-        type : mongoose.Schema.Types.ObjectId,
-        ref:"account",
-        required:[true ,"Transaction must be associated with a from_account" ],
-        index :true
-    },
-    toAccount :{
-        type :mongoose.Schema.Types.ObjectId,
-        ref:"account",
-        required:[true ,"Transaction must be associated with a to_account" ],
-        index :true
-    },
-    status:{
-        type:String,
-        enum: {
-        values: ["PENDING" , "COMPLETED" ,"FAILED" , "REVERSED"],
-        message:"Status can be either Pending , Completed , Failed or Reversed",
-    },
-    default : "PENDING"
-    },
-    amount :{
-        type:Number ,
-        required:[true, "amount is required for creating a transaction"],
-        min:[0 , "Transaction amount can't be negative"]
-    },
-    idempotencyKey:{
-        type:String,
-        required:[true , "Idempotency Key is required for creating a transaction "],
-        index:true ,
-        unique:true
-    }
-
-
-},{
-    timestamps :true
+async function findOne({idempotencyKey},client=pool) {
+  const {rows}=await client.query(
+    "SELECT * FROM transactions WHERE idempotency_key=$1 LIMIT 1",[idempotencyKey]);
+  return map(rows[0]);
 }
-);
 
-const transactionModel = mongoose.model("transaction" , transactionSchema);
+async function create({fromAccount,toAccount,amount,idempotencyKey,status="PENDING"},client=pool) {
+  const {rows}=await client.query(
+    `INSERT INTO transactions(from_account,to_account,amount,idempotency_key,status)
+     VALUES($1,$2,$3,$4,$5) RETURNING *`,
+    [fromAccount,toAccount,amount,idempotencyKey,status]);
+  return map(rows[0]);
+}
 
-module.exports = transactionModel ;
+async function updateStatus(id,status,client=pool) {
+  const {rows}=await client.query(
+    "UPDATE transactions SET status=$1,updated_at=CURRENT_TIMESTAMP WHERE id=$2 RETURNING *",
+    [status,id]);
+  return map(rows[0]);
+}
+
+module.exports={findOne,create,updateStatus};
