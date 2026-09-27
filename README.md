@@ -2,19 +2,19 @@
 
 > **Asha Saini — Backend Banking System**
 >
-> Concurrency-safe banking backend using **Node.js, Express.js, PostgreSQL, Redis, Redlock and JWT**.
+> Concurrency-safe banking backend using **Node.js, Express.js, MySQL, Redis, Redlock and JWT**.
 
 ## 🎯 What This Project Does
 
 This project demonstrates how a banking backend can safely process money transfers while handling concurrency, duplicate requests, authentication and financial auditability.
 
 Core ideas:
-- PostgreSQL is the financial **source of truth**.
+- MySQL is the financial **source of truth**.
 - Redis/Redlock provides **distributed coordination**.
-- PostgreSQL `FOR UPDATE` provides **database-level row locking**.
+- MySQL `FOR UPDATE` provides **database-level row locking**.
 - Every transfer uses **double-entry ledger accounting**.
 - Idempotency keys prevent **duplicate payments**.
-- PostgreSQL transactions provide **atomicity**.
+- MySQL transactions provide **atomicity**.
 - Ledger records are protected from modification/deletion.
 
 ## 🏗️ Detailed Architecture
@@ -47,7 +47,7 @@ Core ideas:
                    │                                   │
                    ▼                                   ▼
         ┌──────────────────────┐            ┌──────────────────────┐
-        │        REDIS         │            │     POSTGRESQL       │
+        │        REDIS         │            │     MySQL       │
         │                      │            │                      │
         │ Redlock              │            │ Financial Source     │
         │ Distributed Lock     │            │       of Truth       │
@@ -101,7 +101,7 @@ POST /api/transactions
 5. Acquire Redis/Redlock
         │
         ▼
-6. PostgreSQL BEGIN
+6. MySQL BEGIN
         │
         ▼
 7. SELECT sender FOR UPDATE
@@ -228,7 +228,7 @@ account:<receiverId>
 
 The keys are sorted before acquiring the lock so A→B and B→A use deterministic lock ordering.
 
-### 2. PostgreSQL FOR UPDATE
+### 2. MySQL FOR UPDATE
 
 Inside the SQL transaction the account rows are locked before checking the balance.
 
@@ -236,7 +236,7 @@ Inside the SQL transaction the account rows are locked before checking the balan
 SELECT * FROM accounts WHERE id = $1 FOR UPDATE;
 ```
 
-PostgreSQL therefore protects the final database state even when multiple requests arrive concurrently.
+MySQL therefore protects the final database state even when multiple requests arrive concurrently.
 
 ## 🧱 ACID Transaction
 
@@ -293,7 +293,7 @@ return T1
 do not transfer another ₹500
 ```
 
-The PostgreSQL schema also has a UNIQUE constraint on `idempotency_key` as a final database-level safeguard.
+The MySQL schema also has a UNIQUE constraint on `idempotency_key` as a final database-level safeguard.
 
 ## 🔑 Authentication Flow
 
@@ -301,7 +301,7 @@ The PostgreSQL schema also has a UNIQUE constraint on `idempotency_key` as a fin
 REGISTER
    │
    ▼
-Password → bcrypt hash → PostgreSQL
+Password → bcrypt hash → MySQL
 
 LOGIN
    │
@@ -317,7 +317,7 @@ PROTECTED REQUEST
 Read JWT → check blacklist → verify JWT
    │
    ▼
-Find user in PostgreSQL
+Find user in MySQL
    │
    ▼
 req.user → Controller
@@ -391,14 +391,14 @@ cd Banking_Transactions
 pnpm install
 ```
 
-### 3. Create PostgreSQL database
+### 3. Create MySQL database
 ```sql
 CREATE DATABASE banking;
 ```
 
 ### 4. Run schema
 ```bash
-psql -U postgres -d banking -f schema.sql
+mysql -u root -p banking < schema.sql
 ```
 
 ### 5. Start Redis
@@ -418,7 +418,7 @@ pnpm run dev
 
 ```env
 PORT=3000
-DATABASE_URL=postgresql://postgres:password@localhost:5432/banking
+DATABASE_URL=MySQL://postgres:password@localhost:5432/banking
 REDIS_URL=redis://localhost:6379
 JWT_SECRET=your_super_secret_key
 EMAIL_USER=your_email@gmail.com
@@ -457,15 +457,15 @@ Request 2 → A → C ₹800
 
 Expected: only one transfer can consume the available ₹1000 balance.
 
-## 🧠 Why PostgreSQL + Redis?
+## 🧠 Why MySQL + Redis?
 
 | Component | Responsibility |
 |---|---|
-| PostgreSQL | Financial source of truth |
-| PostgreSQL Transaction | Atomic money movement |
-| PostgreSQL FOR UPDATE | Database row locking |
-| PostgreSQL Constraints | Data integrity |
-| PostgreSQL Trigger | Immutable ledger |
+| MySQL | Financial source of truth |
+| MySQL Transaction | Atomic money movement |
+| MySQL FOR UPDATE | Database row locking |
+| MySQL Constraints | Data integrity |
+| MySQL Trigger | Immutable ledger |
 | Redis | Distributed coordination |
 | Redlock | Account-level distributed lock |
 | JWT | Authentication |
@@ -475,7 +475,7 @@ Redis does **not** store the financial balance. If Redis is unavailable, the app
 
 ## 🎤 1-Minute Interview Explanation
 
-> I built a concurrency-safe banking backend using Node.js, Express and PostgreSQL. Users can create accounts and transfer money. Instead of directly updating a balance, I use a double-entry ledger where every transfer creates a debit for the sender and a credit for the receiver. PostgreSQL transactions make the complete operation atomic, while `SELECT FOR UPDATE` prevents concurrent requests from reading the same account balance at the same time. Redis with Redlock adds distributed account-level coordination. I also implemented idempotency keys to prevent duplicate payments, JWT and bcrypt for authentication, and PostgreSQL triggers to protect immutable ledger records. PostgreSQL remains the final source of truth.
+> I built a concurrency-safe banking backend using Node.js, Express and MySQL. Users can create accounts and transfer money. Instead of directly updating a balance, I use a double-entry ledger where every transfer creates a debit for the sender and a credit for the receiver. MySQL transactions make the complete operation atomic, while `SELECT FOR UPDATE` prevents concurrent requests from reading the same account balance at the same time. Redis with Redlock adds distributed account-level coordination. I also implemented idempotency keys to prevent duplicate payments, JWT and bcrypt for authentication, and MySQL triggers to protect immutable ledger records. MySQL remains the final source of truth.
 
 ## 🚀 Future Improvements
 
@@ -497,8 +497,8 @@ Redis does **not** store the financial balance. If Redis is unavailable, the app
 |---|---|
 | Node.js | Runtime |
 | Express.js | REST API |
-| PostgreSQL | Financial database |
-| pg | PostgreSQL driver |
+| MySQL | Financial database |
+| pg | MySQL driver |
 | Redis | Distributed coordination |
 | Redlock | Distributed locking |
 | JWT | Authentication |
