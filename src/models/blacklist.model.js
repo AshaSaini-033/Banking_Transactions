@@ -1,13 +1,24 @@
 const { pool } = require("../config/db");
 
-async function findOne({token},client=pool) {
-  const {rows}=await client.query("SELECT * FROM token_blacklist WHERE token=$1 LIMIT 1",[token]);
+async function findOne({ token }, client = pool) {
+  const [rows] = await client.execute(
+    "SELECT * FROM token_blacklist WHERE token=? LIMIT 1",
+    [token]
+  );
+
   return rows[0] || null;
 }
-async function create({token},client=pool) {
-  const {rows}=await client.query(
-    "INSERT INTO token_blacklist(token) VALUES($1) ON CONFLICT(token) DO NOTHING RETURNING *",[token]);
-  return rows[0] || findOne({token},client);
+
+async function create({ token }, client = pool) {
+  // MySQL mein duplicate token par error avoid karne ke liye INSERT IGNORE.
+  await client.execute(
+    "INSERT IGNORE INTO token_blacklist(token) VALUES(?)",
+    [token]
+  );
+
+  return findOne({ token }, client);
 }
-const tokenBlackListModel={findOne,create};
-module.exports={tokenBlackListModel};
+
+const tokenBlackListModel = { findOne, create };
+
+module.exports = { tokenBlackListModel };
