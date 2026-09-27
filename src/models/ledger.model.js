@@ -1,53 +1,12 @@
-const mongoose = require("mongoose");
+const { pool } = require("../config/db");
 
-
-const ledgerSchema = new mongoose.Schema({
-
-    account : {
-        type:  mongoose.Schema.Types.ObjectId ,
-        ref :"account" , 
-        required :[true , "Ledger must be associated with an account"],
-        index :true,
-        immutable:true,
-        
-    },
-    amount:{
-        type :Number,
-        required:[true , "Amount is required for creating a ledger entry"],
-        immutable:true
-    },
-    transaction:{
-        type: mongoose.Schema.Types.ObjectId,
-        ref : "transaction",
-        required:[true , "Ledger must be associated with a transaction"],
-        index :true,
-        immutable:true
-    },
-    type:{
-        type:String,
-        enum:{
-            values:["CREDIT" , "DEBIT"],
-            message: "Type can be either Credit or Debit",
-        },
-        required:[true , "ledger type is required"],
-        immutable : true 
-    }
-});
-
-function preventLedgerModification(){
-    throw new Error("ledger entries are immutable and cannot be modified or deleted");
+async function create({account,amount,transaction,type},client=pool) {
+  const {rows}=await client.query(
+    `INSERT INTO ledger(account_id,amount,transaction_id,type)
+     VALUES($1,$2,$3,$4) RETURNING *`,
+    [account,amount,transaction,type]);
+  const r=rows[0];
+  return {_id:r.id,account:r.account_id,amount:Number(r.amount),transaction:r.transaction_id,type:r.type,createdAt:r.created_at};
 }
 
-ledgerSchema.pre('findOneAndUpdate' , preventLedgerModification);
-ledgerSchema.pre('updateOne' , preventLedgerModification);
-ledgerSchema.pre('deleteOne' , preventLedgerModification);
-ledgerSchema.pre('remove' , preventLedgerModification);
-ledgerSchema.pre('deleteMany' , preventLedgerModification);
-ledgerSchema.pre('updateMany' , preventLedgerModification);
-ledgerSchema.pre('findOneAndDelete' , preventLedgerModification);
-ledgerSchema.pre('findOneAndReplace' , preventLedgerModification);
-
-
-const ledgerModel = mongoose.model("ledger" , ledgerSchema);
-
-module.exports = ledgerModel;
+module.exports={create};
