@@ -1,13 +1,17 @@
 const { pool } = require("../config/db");
 
-// Ledger financial history ka permanent record hai.
-// Ek transfer ke liye sender aur receiver ke ledger entries banti hain.
 async function create({ account, amount, transaction, type }, client = pool) {
-  const { rows } = await client.query(
-    `INSERT INTO ledger(account_id,amount,transaction_id,type)
-     VALUES($1,$2,$3,$4)
-     RETURNING *`,
-    [account, amount, transaction, type]
+  const id = crypto.randomUUID();
+
+  await client.execute(
+    `INSERT INTO ledger(id,account_id,amount,transaction_id,type)
+     VALUES(?,?,?,?,?)`,
+    [id, account, amount, transaction, type]
+  );
+
+  const [rows] = await client.execute(
+    "SELECT * FROM ledger WHERE id=?",
+    [id]
   );
 
   const r = rows[0];
