@@ -1,27 +1,29 @@
-// PostgreSQL ka connection pool.
-// Pool ka matlab: har request par naya DB connection banane ke bajay
-// kuch reusable connections maintain hote hain.
-const { Pool } = require("pg");
+// MySQL connection pool.
+// Pool reusable connections maintain karta hai, isliye har request par
+// manually naya database connection create nahi karna padta.
+const mysql = require("mysql2/promise");
 
-const pool = new Pool({
-  // DATABASE_URL .env se aayega.
-  connectionString: process.env.DATABASE_URL,
-
-  // Production DB (jaise Render/Neon) SSL maang sakta hai.
-  // Local development mein SSL ki zarurat nahi hai.
-  ssl: process.env.NODE_ENV === "production"
-    ? { rejectUnauthorized: false }
-    : false
+const pool = mysql.createPool({
+  host: process.env.DB_HOST || "localhost",
+  port: Number(process.env.DB_PORT || 3306),
+  user: process.env.DB_USER || "root",
+  password: process.env.DB_PASSWORD || "",
+  database: process.env.DB_NAME || "banking",
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
 });
 
-// Server start hote time ek simple query chala kar
-// check kar rahe hain ki PostgreSQL reachable hai ya nahi.
+// Server start hote waqt simple query se check karte hain
+// ki MySQL reachable hai ya nahi.
 async function connectDB() {
   try {
-    await pool.query("SELECT 1");
-    console.log("Connected to PostgreSQL");
+    const connection = await pool.getConnection();
+    await connection.query("SELECT 1");
+    connection.release();
+    console.log("Connected to MySQL");
   } catch (error) {
-    console.error("Error connecting to PostgreSQL:", error.message);
+    console.error("Error connecting to MySQL:", error.message);
     process.exit(1);
   }
 }
